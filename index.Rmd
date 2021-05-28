@@ -1,0 +1,653 @@
+---
+title: "Modelo Estratégico de Focalización en Poza Rica"
+output: 
+  flexdashboard::flex_dashboard:
+      theme: flatly
+output_dir: docs
+---
+
+
+
+
+```{r setup, echo=FALSE, cache= TRUE, message=FALSE, error = FALSE, warning=FALSE}
+options(shiny.maxRequestSize=30*1024^2)
+# Packages
+library(formattable)
+library(tmap)
+library(rmarkdown)
+library(knitr)
+library(shiny)
+library(flexdashboard)
+library(plotly)
+library(boldenr)
+library(stringr)
+library(magrittr)
+library(leaflet)
+library(dash)
+library(ECharts2Shiny)
+
+# data
+locality <- rgeomex::extract_ageb(locality = "Poza Rica de Hidalgo",
+                                  cve_geo = "30")
+load("C:/Users/felip/OneDrive/proyects/priority_research_projects/hotspots_high_risk_localities_138/8.RData/geocoded_dataset.RData")
+
+load("C:/Users/felip/OneDrive/proyects/hotspots/8.RData/eggs_hotspots_historic/30_veracruz/eggs_prediction_2014_2019_dataframe/30_03_131_pozarica_k40_zinb1_2014_2019.RData")
+x_casos <- denhotspots::point_to_polygons(x = y,
+                                          y = locality$ageb,
+                                          ids = c(names(locality$ageb)[1:(ncol(locality$ageb)-1)]),
+                                          time = ANO,
+                                          coords = c("long", "lat"),
+                                          crs = 4326,
+                                          dis = "DENV")
+hotspots <- denhotspots::gihi(x = x_casos,
+                              id = names(x_casos)[c(1:9)], 
+                              time = "year",
+                              dis = "DENV",
+                              gi_hi = "gi",
+                              alpha = 0.95)
+blocks <- rgeomex::blocks_ine20_mx_centroid %>%
+      sf::st_as_sf(coords = c("x", "y"), crs = 4326)
+```
+
+```{r, echo=FALSE, cache= TRUE, message=FALSE, error = FALSE, warning=FALSE}
+sinave_data <- boldenr::read_dataset_bol(path = "C:/Users/felip/OneDrive/datasets/DGE/arbo/",
+                                dataset = "sinave")
+path <- "C:/Users/felip/Dropbox/cenaprece_datasets/30_veracruz/"
+source('C:/Users/felip/OneDrive/automatic_read_vectores/3.Functions/read_coordinates.R')
+
+ovitraps <- deneggs::ovitraps_read(path = path, current_year = TRUE) %>%
+  dplyr::mutate(clave = as.character(clave))
+coordinates <- read_coordinates(path_coord = path)
+
+
+ovitraps_coords <- dplyr::left_join(x = ovitraps,
+                                    y = coordinates,
+                                    by = c("ovitrap",
+                                           "clave")) %>%
+        dplyr::mutate(long = pocision_x,
+                      lat = pocision_y) %>%
+        dplyr::filter(!is.na(long)) %>%
+        dplyr::filter(!is.na(eggs)) %>%
+        sf::st_as_sf(coords = c("long", "lat"),
+                     crs = 4326)
+ovitraps_coords <- ovitraps_coords[locality$locality, ]
+
+
+```
+
+```{r, echo=FALSE, cache= TRUE, message=FALSE, error = FALSE, warning=FALSE}
+source('C:/r_dashboards/github_pages/test_dashboard/3.Functions/risk_agebs.R')
+risk <- risk_agebs(spde_model = spde_eggs_pozarica_zinb1,
+                   hotspots = hotspots,
+                   intensity_perc = 30)
+```
+
+
+**Hotspots de los casos**
+=====================================  
+
+Column {data-width=500}
+-------------------------------------
+
+
+
+### **<span style="color:#7d9029">Hotspots de la Transmisión del Dengue en Poza Rica Veracruz</span> **
+
+```{r hotspots, dpi=600, warning=FALSE, fig.align = "center",out.height='100%', out.width = '100%',fig.show = "hold"}
+library(magrittr)
+pal <- leaflet::colorFactor(palette = rcartocolor::carto_pal(n = max(hotspots$intensity_gi), name = "OrYel"), domain = hotspots$intensity_gi)
+
+#pal <- leaflet::colorFactor(input$variablespalette, domain = hotspots$intensity_gi)
+
+hotspots$labels <- paste0("<strong> AGEB: </strong> ",
+                          hotspots$CVEGEO, "<br/> ",
+                          "<strong> intensidad: </strong> ",
+                          hotspots$intensity_gi, "<br/> ") %>%
+    lapply(htmltools::HTML)
+  
+  
+  
+l <- leaflet::leaflet(data = hotspots) %>%
+    leaflet::addTiles() %>%
+    leaflet::addPolygons(fillColor = ~pal(intensity_gi),
+                         color = "white",
+                         group = "Hotspots",
+                         weight = 1,
+                         fillOpacity = 0.7,
+                         label = ~labels,
+                         highlightOptions = leaflet::highlightOptions(color = "black",
+                                                                      bringToFront = TRUE)) %>%
+    leaflet::addLegend(pal = pal, 
+                       values = ~intensity_gi,
+                       opacity = 0.7,
+                       title = "Intensidad")
+
+esri <- grep("^Esri|CartoDB|OpenStreetMap", leaflet::providers, value = TRUE)
+for (provider in esri) {
+    l <- l %>% leaflet::addProviderTiles(provider, 
+                                         group = provider)
+}
+
+l %>%
+    leaflet::addLayersControl(baseGroups = names(esri),
+                              options = leaflet::layersControlOptions(collapsed = TRUE),
+                              overlayGroups = c("Hotspots")) %>%
+    leaflet::addMiniMap(tiles = esri[[1]], 
+                        toggleDisplay = TRUE,
+                        minimized = TRUE,
+                        position = "bottomleft") %>%
+    htmlwidgets::onRender("
+    function(el, x) {
+      var myMap = this;
+      myMap.on('baselayerchange',
+        function (e) {
+          myMap.minimap.changeLayer(L.tileLayer.provider(e.name));
+        })
+    }")
+```
+
+
+
+### **<span style="color:#7d9029">Carga de la Enfermedad en el área Hotspots</span>**
+
+<div class = "row">
+<div class = "col-md-4">
+<center>
+
+```{r gauge1, out.height='100%', out.width = '100%', fig.align = "center", fig.width=1.5, fig.height=1.5}
+
+
+x_casos_hotspots <- cbind(hotspots,
+                          x_casos  %>% 
+                              sf::st_drop_geometry() %>%
+                              dplyr::select(dplyr::starts_with("DENV")))
+y <- x_casos_hotspots  %>%
+    sf::st_drop_geometry() %>%
+    dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
+                  loc = "locality") %>%
+    dplyr::select(loc, n_cases, hotspots_gi) 
+y_hot <- y %>% dplyr::filter(hotspots_gi == 1)
+
+flexdashboard::gauge(round((sum(y_hot$n_cases)/sum(y$n_cases))*100, digits = 1),
+      min = 0, max = 100, 
+      symbol = '%', 
+      label = "Casos de Dengue",
+      flexdashboard::gaugeSectors(success = c(10, 100), 
+                   warning = c(6, 10), 
+                   danger = c(0, 5),
+                   colors = c("success", "warning","danger"))
+      )
+```
+
+</center>
+</div>
+
+<div class = "col-md-4">
+<center> 
+
+```{r gauge2,fig.align = "center", out.height='100%', out.width = '100%', fig.width= 1.5, fig.height=1.5}
+x_casos_hotspots <- cbind(hotspots,
+                          x_casos  %>% 
+                              sf::st_drop_geometry() %>%
+                              dplyr::select(dplyr::starts_with("DENV")))
+y <- x_casos_hotspots  %>%
+    sf::st_drop_geometry() %>%
+    dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
+                  loc = "locality") %>%
+    dplyr::select(loc, n_cases, hotspots_gi) 
+y_hot <- y %>% dplyr::filter(hotspots_gi == 1)
+  
+flexdashboard::gauge(round((nrow(y_hot)/nrow(y))*100, digits = 1),
+      min = 0, max = 100, 
+      symbol = '%', 
+      label = "AGEBs",
+      flexdashboard::gaugeSectors(success = c(0, 30), 
+                   warning = c(31, 50), 
+                   danger = c(51, 100),
+                   colors = c("success", "warning","danger"))
+      )
+```
+
+</center>
+</div>
+
+<div class = "col-md-4">
+<center> 
+
+```{r gauge3,fig.align = "center", out.height='100%', out.width = '100%', fig.width= 1.5, fig.height=1.5}
+
+
+y_hot <- hotspots %>% dplyr::filter(hotspots_gi == 1)
+centroid <- rgeomex::blocks_ine20_mx_centroid %>%
+  sf::st_as_sf(coords = c("x", "y"), crs = 4326)
+b_loc <- centroid[hotspots, ]
+b_hot <- b_loc[y_hot, ]
+flexdashboard::gauge(round((nrow(b_hot)/nrow(b_loc))*100, digits = 1),
+      min = 0, max = 100, 
+      symbol = '%', 
+      label = "Manzanas",
+      flexdashboard::gaugeSectors(success = c(0, 30), 
+                   warning = c(31, 50), 
+                   danger = c(51, 100),
+                   colors = c("success", "warning","danger"))
+      )
+```
+
+</center>
+</div>
+</div>
+
+Row {data-width=300}
+---------------------------------------
+
+
+
+### **<span style="color:#7d9029">Odds Ratio $y = log(\frac{p}{1-p})$ </span>**
+
+```{r, dpi=600, warning=FALSE, fig.align = "center", out.width = '100%',fig.show = "hold"}
+ 
+x_casos_hotspots <- cbind(hotspots,
+                          x_casos  %>% 
+                              sf::st_drop_geometry() %>%
+                              dplyr::select(dplyr::starts_with("DENV")))
+
+# Logistics Regression
+glm.fit <- glm(hotspots_gi ~ DENV_2008 + DENV_2009 + DENV_2010 +DENV_2011 + DENV_2012 + DENV_2013 + DENV_2014 + DENV_2015 + DENV_2016 +
+                   DENV_2017 + DENV_2018 + DENV_2019 + DENV_2020,
+               data = x_casos_hotspots, 
+               family = binomial)
+
+result <- parameters::model_parameters(glm.fit, 
+                                      exponentiate = TRUE)
+
+plot(result, size_text = 4)
+```
+
+### **<span style="color:#7d9029">Power Law $y = ax^{b}$</span>**
+
+```{r, dpi = 600, warning=FALSE, fig.align = "center", out.width = '100%',out.height='100%',fig.show = "hold"}
+x_casos_hotspots <- cbind(hotspots,
+                          x_casos  %>% 
+                              sf::st_drop_geometry() %>%
+                              dplyr::select(dplyr::starts_with("DENV")))
+
+# Step 7. make the function por calculate the cumulative ####
+funcumsum <- function(x){
+    x$cumulative_n <- cumsum(x$n_cases)
+    x$perc_cumsum_n <- round((cumsum(x$n_cases)/sum(x$n_cases))*100, digits = 1)
+    #x$cumulative_ha <- cumsum(x$ha)
+    #x$perc_cumsum_ha <- round((cumsum(x$ha)/sum(x$ha))*100, digits = 1)
+    x$id <- 1
+    x$id_cumsum <- cumsum(x$id)
+    x$id_perc_cum <- round((cumsum(x$id)/nrow(x))*100, digits = 1)
+    x
+}
+# step 8.
+
+data_pareto <- x_casos_hotspots  %>%
+    sf::st_drop_geometry() %>%
+    dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
+                  loc = "locality") %>%
+    dplyr::select(loc, n_cases, hotspots_gi) %>%
+    dplyr::arrange(loc, desc(hotspots_gi), desc(n_cases)) %>%
+    dplyr::group_by(loc) %>%
+    tidyr::nest() %>%
+    dplyr::mutate(pareto_cases = purrr::map(data,
+                                            funcumsum)) %>%
+    dplyr::select(-data) %>%
+    tidyr::unnest(cols = c(pareto_cases))
+
+# step 4. visualization of pareto rules ####
+plotly::ggplotly(denhotspots::power_law_plot(x = data_pareto)) %>% plotly::layout(showlegend = FALSE)
+
+```
+
+
+**Hotspots del vector**
+=====================================  
+
+Column {.tabset}
+-------------------------------------
+### **<span style="color:#7d9029">Hotspots Huevos  de Ae. aegypi</span>**
+
+```{r, dpi=600, warning=FALSE, fig.align = "center",out.height='100%', out.width = '100%',fig.show = "hold"}
+  ################################
+  # Step 1. define the function ##### 
+    intensity_function <- function(x){
+        y <- x %>%
+            dplyr::mutate(hotspots_binary = ifelse(hotspots == "Hotspots", 1, 0)) %>%
+            as.data.frame() %>%
+            dplyr::select(x, y, week, hotspots_binary) %>%
+            tidyr::pivot_wider(id_cols = c(x, y),
+                               names_from = "week",
+                               #names_prefix = "hotspots",
+                               values_from = "hotspots_binary") %>%
+            as.data.frame() 
+        
+        y$intensity <- rowSums(y %>% dplyr::select(-1, -2))
+        y$per_intensity <- round((y$intensity/ncol(y %>% dplyr::select(-1, -2, -intensity)))*100,digits = 1)
+        y %>% dplyr::select(x, y, intensity,per_intensity)
+    }
+    
+    # step 2. apply the function ####
+    x <- spde_eggs_pozarica_zinb1 %>%
+        dplyr::group_by(year) %>%
+        tidyr::nest() %>%
+        dplyr::mutate(intensity = purrr::map(data,intensity_function)) %>%
+        dplyr::select(-data) %>%
+        tidyr::unnest(cols = c(intensity))
+    
+    
+    # step 5 plot the map ####
+    plotly::ggplotly(ggplot2::ggplot() +
+        ggplot2::geom_tile(data = x,
+                           ggplot2::aes(x = x,
+                                        y = y,
+                                        fill = intensity)) +
+            #ggplot2::scale_fill_distiller(palette = input$variablespalette, direction = 1) +
+            ggplot2::scale_fill_distiller(palette = "Blues", direction = 1) +
+        ggplot2::geom_sf(data = locality$locality,  
+                         alpha = 1, 
+                         fill = NA,
+                         col = "black", 
+                         lwd = 0.5) +
+        ggplot2::geom_sf(data = hotspots %>% dplyr::filter(intensity_gi > 0), 
+                         fill = NA, 
+                         alpha = 1, 
+                         col = "darkgreen", 
+                         lwd = 0.1) +
+        ggplot2::facet_wrap(facets = "year") +
+        ggplot2::theme_void() +
+        ggplot2::theme(legend.position = "bottom") +
+        ggplot2::theme(legend.key.size = ggplot2::unit(.8, "cm"),
+                       legend.key.width = ggplot2::unit(.5,"cm"),
+                       legend.margin= ggplot2::margin(0,0,0,0),
+                       legend.box.margin= ggplot2::margin(-20,0,0,0)) +
+        ggplot2::theme(legend.text = ggplot2::element_text(colour = "black",
+                                                           face  = "bold"),
+                       legend.title = ggplot2::element_text(colour = "darkred",
+                                                            face  = "bold")) +
+        ggplot2::theme(strip.text = ggplot2::element_text(size = 11,
+                                                          face = "bold"))) %>% 
+    plotly::layout(legend = list(orientation = 'h'))
+  
+```
+
+> <span style="color:#7d9029">Los polígonos representan los AGEBs indentificados como hotspot de casos </span>
+
+### **<span style="color:#7d9029"> Abundancias del Vector por lluvias y secas </span>**
+```{r, dpi=600, warning=FALSE, fig.align = "center", out.height='100%',out.width = '100%',fig.show = "hold"}
+  x <- spde_eggs_pozarica_zinb1 %>%
+    dplyr::mutate(year = factor(year),
+                  season = ifelse(week <= 21, 
+                                  "Secas", "Lluvias"),
+                  week = factor(week))
+
+  plotly::ggplotly(ggplot2::ggplot()+
+                     ggplot2::geom_violin(data = x,
+                                          ggplot2::aes(x = season,
+                                                       y = pred_mean,
+                                                       fill = hotspots,
+                                                       color = hotspots))+
+                     ggplot2::facet_wrap(facets = "year",
+                                         scales = "free_y") +
+                     ggplot2::theme(legend.position = "none") +
+                     ggplot2::scale_color_manual("",
+                                                 values= c("darkred", 
+                                                           "darkgreen")) +
+                     ggplot2::scale_fill_manual("",
+                                                values= c("darkred", 
+                                                          "darkgreen"))+
+                     ggplot2::ylab(label = "Número de Huevos") +
+                     ggplot2::xlab(label = " ")+
+                     #ggplot2::theme(axis.text.x = ggplot2::element_blank()) +
+                     ggplot2::theme(panel.background = ggplot2::element_rect(fill = "gray90",
+                                                                             colour = "gray90"),
+                                    panel.grid.major = ggplot2::element_blank(),
+                                    panel.grid.minor = ggplot2::element_blank()))
+
+```
+
+> **<span style="color:#c00000"> Rojo área hotspots </span><span style="color:black"> & </span> <span style="color:darkgreen">Verde área no hotspots </span>**
+
+
+### **<span style="color:#7d9029">Abundancia del Vector por semana </span>**
+
+```{r, dpi=600, warning=FALSE, fig.align = "center", out.height='100%',out.width = '100%',fig.show = "hold"}
+  x <- spde_eggs_pozarica_zinb1 %>%
+    dplyr::mutate(year = factor(year),
+                  season = ifelse(week <= 21, 
+                                  "Secas", "Lluvias"),
+                  week = factor(week))
+
+  plotly::ggplotly(ggplot2::ggplot()+
+                     ggplot2::geom_violin(data = x,
+                                          ggplot2::aes(x = week,
+                                                       y = pred_mean,
+                                                       fill = hotspots,
+                                                       color = hotspots))+
+                     ggplot2::facet_wrap(facets = "year",
+                                         scales = "free_y") +
+                     ggplot2::theme(legend.position = "none") +
+                     ggplot2::scale_color_manual("",
+                                                 values= c("darkred", 
+                                                           "darkgreen")) +
+                     ggplot2::scale_fill_manual("",
+                                                values= c("darkred", 
+                                                          "darkgreen"))+
+                     ggplot2::ylab(label = "Número de Huevos") +
+                     ggplot2::theme(axis.text.x = ggplot2::element_blank()) +
+                     ggplot2::theme(panel.background = ggplot2::element_rect(fill = "gray90",
+                                                                             colour = "gray90"),
+                                    panel.grid.major = ggplot2::element_blank(),
+                                    panel.grid.minor = ggplot2::element_blank()))
+
+```
+
+> **<span style="color:#c00000"> Rojo área hotspots </span><span style="color:black"> & </span> <span style="color:darkgreen">Verde área no hotspots </span>**
+
+
+**Mapa de riesgo**
+=====================================  
+
+
+Column {data-width=500}
+-------------------------------------
+
+
+
+### **<span style="color:#7d9029"> Mapa de Riesgo </span>**
+
+```{r map_risk, dpi=600, warning=FALSE, fig.align = "center",out.height='100%', out.width = '100%',fig.show = "hold"}
+
+  # 4. visualizacion leaflet map ####
+    pal <- leaflet::colorFactor(palette = c("#F44B1FFF","#FF9000FF",
+                                            "gold", "#00F293FF"), 
+                                domain = risk$risk)
+  
+l <- leaflet::leaflet(data = risk) %>%
+    leaflet::addTiles() %>%
+    leaflet::addPolygons(fillColor = ~pal(risk),
+                         color = "white",
+                         group = "Risk",
+                         fillOpacity = 0.7,
+                         weight = 1,
+                         #label = ~labels,
+                         highlightOptions = leaflet::highlightOptions(color = "black",
+                                                                      bringToFront = TRUE)) %>%
+    leaflet::addLegend(pal = pal, 
+                       values = ~risk,
+                       opacity = 0.7,
+                       title = "Riesgo")
+
+esri <- grep("^Esri|CartoDB|OpenStreetMap", leaflet::providers, value = TRUE)
+for (provider in esri) {
+    l <- l %>% leaflet::addProviderTiles(provider, 
+                                         group = provider)
+}
+
+l %>%
+    leaflet::addLayersControl(baseGroups = names(esri),
+                              options = leaflet::layersControlOptions(collapsed = TRUE),
+                              overlayGroups = c("Risk")) %>%
+    leaflet::addMiniMap(tiles = esri[[1]], 
+                        toggleDisplay = TRUE,
+                        minimized = TRUE,
+                        position = "bottomleft") %>%
+    htmlwidgets::onRender("
+    function(el, x) {
+      var myMap = this;
+      myMap.on('baselayerchange',
+        function (e) {
+          myMap.minimap.changeLayer(L.tileLayer.provider(e.name));
+        })
+    }")
+```
+
+
+### **<span style="color:#7d9029">Porcentaje de Manzanas</span>**
+
+<div class = "row">
+<div class = "col-md-4">
+<center>
+
+```{r gauge1_map_risk, out.height='100%', out.width = '100%', fig.align = "center", fig.width=1.5, fig.height=1.5, message=FALSE, error = FALSE, warning=FALSE}
+
+    
+    #########################################################
+    block_loc <- blocks[risk,]
+    block_hh_risk <- blocks[risk %>% dplyr::filter(risk == "Muy Alto Riesgo"),]
+    
+    flexdashboard::gauge(value = round((nrow(block_hh_risk)/nrow(block_loc))*100, 
+                        digits = 1),
+          min = 0, max = 100, 
+          symbol = '%', 
+          label = "Muy Alto Riesgo",
+          flexdashboard::gaugeSectors(success = c(0, 100), 
+                       colors = c("red")))
+```
+
+</center>
+</div>
+
+<div class = "col-md-4">
+<center> 
+
+```{r gauge2_map_risk, out.height='100%', out.width = '100%', fig.align = "center", fig.width=1.5, fig.height=1.5, message=FALSE, error = FALSE, warning=FALSE}
+
+    block_loc <- blocks[risk,]
+    block_hh_risk <- blocks[risk %>% dplyr::filter(risk == "Alto Riesgo"),]
+    
+    flexdashboard::gauge(value = round((nrow(block_hh_risk)/nrow(block_loc))*100, 
+                        digits = 1),
+          min = 0, max = 100, 
+          symbol = '%', 
+          label = "Alto Riesgo",
+          flexdashboard::gaugeSectors(success = c(0, 100), 
+                       colors = c("orange")))
+```
+
+</center>
+</div>
+
+<div class = "col-md-4">
+<center> 
+
+```{r gauge3_map_risk, out.height='100%', out.width = '100%', fig.align = "center", fig.width=1.5, fig.height=1.5, message=FALSE, error = FALSE, warning=FALSE}
+    block_loc <- blocks[risk,]
+    block_hh_risk <- blocks[risk %>% dplyr::filter(risk == "Mediano Riesgo"),]
+    
+    
+    # 4. gaugue #### 
+    flexdashboard::gauge(value = round((nrow(block_hh_risk)/nrow(block_loc))*100, 
+                        digits = 1),
+          min = 0, max = 100, 
+          symbol = '%', 
+          label = "Mediano Riesgo",
+          flexdashboard::gaugeSectors(success = c(0, 100), 
+                       colors = c("yellow")))
+
+```
+
+</center>
+</div>
+</div>
+
+
+
+Row {data-width=250, data-higth=700}
+---------------------------------------
+
+### **<span style="color:#7d9029">Colecta de Adultos </span>**
+
+```{r adult, out.height='50%', out.width = '50%', fig.align = "center"}
+    block_loc <- blocks[risk,]
+  
+  # 4. table ####
+    x <- data.frame("Aspiradores" = seq(from = 2, to= 20, by =2),
+                    "Manzana" = seq(from = 2, to= 20, by =2)*5*5,
+                    "Area1" = round(seq(from = 2, to= 20, by =2)*5*5/nrow(block_loc)*100, digits = 1),
+                    "Area2" = round(seq(from = 2, to= 20, by =2)*5*5/nrow(block_loc)*100, digits = 1)*5)
+    DT::datatable(data = x, rownames = FALSE, options = list(paging = TRUE))
+```
+  
+  
+### **<span style="color:#7d9029">Rociado Residual </span>**
+
+```{r irs, out.height='50%', out.width = '50%', fig.align = "center"}
+
+  # 4. table ####
+    x <- data.frame(Riesgo = c("Muy Alto Riesgo","Alto Riesgo","Mediano Riesgo"),
+                    Manzanas = c(nrow(blocks[risk %>% dplyr::filter(risk == "Muy Alto Riesgo"),]),
+                                 nrow(blocks[risk %>% dplyr::filter(risk == "Alto Riesgo"),]),
+                                 nrow(blocks[risk %>% dplyr::filter(risk == "Mediano Riesgo"),]))) %>%
+      dplyr::mutate(casas = Manzanas*20,
+                    sobres = casas/2,
+                    cunetes = sobres/200)
+    DT::datatable(data = x, rownames = FALSE, options = list(paging = TRUE))
+```
+
+
+**Vigilancia Entomológica**
+=====================================  
+
+
+Column {data-width=500}
+-------------------------------------
+
+### **<span style="color:#7d9029"> Huevos por área de riesgo </span>**
+
+```{r eggs_risk}
+library(ggplot2)
+library(plotly)
+library(magrittr)
+ovitraps_risk <- sf::st_join(x = ovitraps_coords,
+                             y = risk[,c("risk", "CVEGEO", 
+                                         "intensity_gi", "hotspots_gi")])
+ovitraps_risk$week <- as.factor(ovitraps_risk$week)
+plotly::ggplotly(ggplot2::ggplot() +
+                     ggplot2::stat_summary(data = ovitraps_risk ,
+                                           ggplot2::aes(x = week,
+                                                        y = eggs,
+                                                        colour = risk),
+                                           fun.data = "mean_cl_boot",
+                                           size = 5,
+                                           fill = "black",
+                                           position = ggplot2::position_dodge(width = .4),
+                                           geom = "pointrange") +
+                     ggplot2::ylab("Huevos") +
+                     ggplot2::xlab("Semana Epidemiológica") +
+                     ggplot2::scale_color_manual("",values = c(c("#F44B1FFF",
+                                                                 "#FF9000FF",
+                                                                 "gold", 
+                                                                 "#00F293FF")))) %>%
+    plotly::layout(legend = list(orientation = 'h',
+                                 x = .01, 
+                                 y = .99,
+                                 bgcolor = 'rgba(0,0,0,0)',
+                                 family = "sans-serif",
+                                 size = 12,
+                                 color = "#000"))
+```
+
+

@@ -1,0 +1,3 @@
+runtime: shiny
+name: "denmx_dashboard_pozarica"
+output_dir: docs
