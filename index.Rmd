@@ -76,7 +76,7 @@ ovitraps_coords <- ovitraps_coords[locality$locality, ]
 ```
 
 ```{r, echo=FALSE, cache= TRUE, message=FALSE, error = FALSE, warning=FALSE}
-source('C:/r_dashboards/github_pages/test_dashboard/3.Functions/risk_agebs.R')
+source('C:/Users/felip/Dropbox/r_developments/r_dashboards/github_pages/test_dashboard/3.Functions/risk_agebs.R')
 risk <- risk_agebs(spde_model = spde_eggs_pozarica_zinb1,
                    hotspots = hotspots,
                    intensity_perc = 30)
