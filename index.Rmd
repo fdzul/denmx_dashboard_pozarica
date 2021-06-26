@@ -29,22 +29,12 @@ library(ECharts2Shiny)
 # data
 locality <- rgeomex::extract_ageb(locality = "Poza Rica de Hidalgo",
                                   cve_geo = "30")
-load("C:/Users/felip/OneDrive/proyects/priority_research_projects/hotspots_high_risk_localities_138/8.RData/geocoded_dataset.RData")
 
 load("C:/Users/felip/OneDrive/proyects/hotspots/8.RData/eggs_hotspots_historic/30_veracruz/eggs_prediction_2014_2019_dataframe/30_03_131_pozarica_k40_zinb1_2014_2019.RData")
-x_casos <- denhotspots::point_to_polygons(x = y,
-                                          y = locality$ageb,
-                                          ids = c(names(locality$ageb)[1:(ncol(locality$ageb)-1)]),
-                                          time = ANO,
-                                          coords = c("long", "lat"),
-                                          crs = 4326,
-                                          dis = "DENV")
-hotspots <- denhotspots::gihi(x = x_casos,
-                              id = names(x_casos)[c(1:9)], 
-                              time = "year",
-                              dis = "DENV",
-                              gi_hi = "gi",
-                              alpha = 0.95)
+
+load("C:/Users/felip/OneDrive/proyects/hotspots/8.RData/cases_hotspots_agebs19.RData")
+hotspots <- cases_hotspots_agebs19[locality$locality,]
+
 blocks <- rgeomex::blocks_ine20_mx_centroid %>%
       sf::st_as_sf(coords = c("x", "y"), crs = 4326)
 ```
@@ -79,7 +69,7 @@ ovitraps_coords <- ovitraps_coords[locality$locality, ]
 source('C:/Users/felip/Dropbox/r_developments/r_dashboards/github_pages/test_dashboard/3.Functions/risk_agebs.R')
 risk <- risk_agebs(spde_model = spde_eggs_pozarica_zinb1,
                    hotspots = hotspots,
-                   intensity_perc = 30)
+                   intensity_perc = 20)
 ```
 
 
@@ -157,11 +147,8 @@ l %>%
 ```{r gauge1, out.height='100%', out.width = '100%', fig.align = "center", fig.width=1.5, fig.height=1.5}
 
 
-x_casos_hotspots <- cbind(hotspots,
-                          x_casos  %>% 
-                              sf::st_drop_geometry() %>%
-                              dplyr::select(dplyr::starts_with("DENV")))
-y <- x_casos_hotspots  %>%
+
+y <- hotspots  %>%
     sf::st_drop_geometry() %>%
     dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
                   loc = "locality") %>%
@@ -186,11 +173,8 @@ flexdashboard::gauge(round((sum(y_hot$n_cases)/sum(y$n_cases))*100, digits = 1),
 <center> 
 
 ```{r gauge2,fig.align = "center", out.height='100%', out.width = '100%', fig.width= 1.5, fig.height=1.5}
-x_casos_hotspots <- cbind(hotspots,
-                          x_casos  %>% 
-                              sf::st_drop_geometry() %>%
-                              dplyr::select(dplyr::starts_with("DENV")))
-y <- x_casos_hotspots  %>%
+
+y <- hotspots  %>%
     sf::st_drop_geometry() %>%
     dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
                   loc = "locality") %>%
@@ -246,15 +230,11 @@ Row {data-width=300}
 
 ```{r, dpi=600, warning=FALSE, fig.align = "center", out.width = '100%',fig.show = "hold"}
  
-x_casos_hotspots <- cbind(hotspots,
-                          x_casos  %>% 
-                              sf::st_drop_geometry() %>%
-                              dplyr::select(dplyr::starts_with("DENV")))
 
 # Logistics Regression
 glm.fit <- glm(hotspots_gi ~ DENV_2008 + DENV_2009 + DENV_2010 +DENV_2011 + DENV_2012 + DENV_2013 + DENV_2014 + DENV_2015 + DENV_2016 +
                    DENV_2017 + DENV_2018 + DENV_2019 + DENV_2020,
-               data = x_casos_hotspots, 
+               data = hotspots, 
                family = binomial)
 
 result <- parameters::model_parameters(glm.fit, 
@@ -266,10 +246,6 @@ plot(result, size_text = 4)
 ### **<span style="color:#7d9029">Power Law $y = ax^{b}$</span>**
 
 ```{r, dpi = 600, warning=FALSE, fig.align = "center", out.width = '100%',out.height='100%',fig.show = "hold"}
-x_casos_hotspots <- cbind(hotspots,
-                          x_casos  %>% 
-                              sf::st_drop_geometry() %>%
-                              dplyr::select(dplyr::starts_with("DENV")))
 
 # Step 7. make the function por calculate the cumulative ####
 funcumsum <- function(x){
@@ -284,7 +260,7 @@ funcumsum <- function(x){
 }
 # step 8.
 
-data_pareto <- x_casos_hotspots  %>%
+data_pareto <- hotspots  %>%
     sf::st_drop_geometry() %>%
     dplyr::mutate(n_cases = rowSums(dplyr::select(., dplyr::starts_with("DENV"))),
                   loc = "locality") %>%
